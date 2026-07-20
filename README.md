@@ -1,2 +1,2 @@
 # Eddy-induced-SSTA-and-HFA
-This repository provides the codes used to process iHESP model output, calculate geostrophic velocity, identify and track mesoscale eddies, and extract eddy-centred SSTA and HFA fields. It also includes scripts for analysing XGBoost and SHAP outputs and visualizing the relationships between predictor variables and their contributions.
+This repository provides the MATLAB codes used to process observational and iHESP model data, identify and track mesoscale eddies, extract eddy-centred SSTA and HFA fields, and quantify their structural and air–sea heat-flux characteristics. It also includes scripts for analysing and visualizing XGBoost and SHAP attribution results.
