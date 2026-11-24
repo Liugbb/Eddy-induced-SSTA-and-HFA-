@@ -1,20 +1,71 @@
-% Draw four separate SHAP dependence plots and one figure with four global maps.
-% Place XGBoost_SHAP_inputs.mat beside this script. Run in MATLAB with
-% smooth (Curve Fitting Toolbox), ksdensity (Statistics and Machine Learning
-% Toolbox), and M_Map on the path.
-
+% Run this script with SourceDataFigure3.mat beside it.
+% Panel (a) shows prediction counts. Panels (c)-(f) show the four dependence
+% plots, followed by a separate map figure. The Python script draws panel (b).
+% Requires smooth (Curve Fitting Toolbox), ksdensity (Statistics and Machine
+% Learning Toolbox), and M_Map for the maps.
 folder = fileparts(mfilename('fullpath'));
-load(fullfile(folder,'SourceDataFigure3.mat'),'longitude','latitude', ...
-     'predictorNames','predictors','shapValues','sstaAmp','absDeltaFSLE', ...
-     'scatterColors','dampingColors','mapColors');
+sourceFile = fullfile(folder,'SourceDataFigure3.mat');
+assert(isfile(sourceFile),'Place SourceDataFigure3.mat beside this script or run prepare_Figure3 first.');
+fields = {'prediction','dampingPoints','predictors','shapValues','sstaAmp','absDeltaFSLE', ...
+    'scatterColors','dampingColors','mapColors','lon','lat','mapSHAP','predictorNames'};
+missing = setdiff(fields,who('-file',sourceFile));
+assert(isempty(missing),'Missing fields in SourceDataFigure3.mat: %s. Run the updated prepare_Figure3.m.', ...
+    strjoin(missing,', '));
+D = load(sourceFile,fields{:});
+prediction = D.prediction;
+rows = prediction.plotRows;
+counts = prediction.pointCount;
+observed = prediction.observed;
+predicted = prediction.predicted;
+
+%% Observed vs predicted alpha (Without_lat)
+predictionFig = figure('Name','alpha_pred_vs_true','NumberTitle','off', ...
+    'Position',[100 100 1400 1000],'Color','w');
+mainPos = [0.06 0.55 0.38 0.35];
+ax = axes('Parent',predictionFig,'Position',mainPos);
+hold(ax,'on'); box(ax,'on');
+scatter(ax,observed(rows),predicted(rows),10,counts,'filled','MarkerEdgeColor','none');
+colormap(ax,D.mapColors);
+ax.ColorScale = 'log';
+caxis(ax,[1 max(2,counts(end))]);
+cb = colorbar(ax,'northoutside');
+cb.Units = 'normalized';
+cb.Position = [0.06 0.91 0.38 0.023];
+ax.Position = mainPos;
+cb.Ticks = 10.^(0:floor(log10(counts(end))));
+cb.TickLabels = arrayfun(@(t) sprintf('10^{%d}',round(log10(t))),cb.Ticks,'UniformOutput',false);
+cb.TickLabelInterpreter = 'tex';
+set(cb,'AxisLocation','out','FontSize',16,'FontWeight','normal','LineWidth',2);
+set(cb.Label,'String','Sample Count','FontSize',18,'FontWeight','normal');
+plot(ax,[0 1.2],[0 1.2],'--','Color',[0.45 0.45 0.45],'LineWidth',2);
+set(ax,'FontSize',16,'LineWidth',2,'Layer','top','XLim',[0 .8],'YLim',[0 .8], ...
+    'XTick',0:.2:.8,'YTick',0:.2:.8);
+xlabel(ax,'Observed α','Interpreter','none','FontSize',20);
+ylabel(ax,'Predicted α','Interpreter','none','FontSize',20);
+rText = sprintf('r (reported) = %.2f',prediction.rAnnotation);
+if isfinite(prediction.pCalculated)
+    if prediction.pCalculated<0.01
+        rText = [rText ' (p<0.01)'];
+    else
+        rText = sprintf('%s (p=%.3g)',rText,prediction.pCalculated);
+    end
+end
+text(ax,0.03,0.82,sprintf('%s\nRMSE = %.2f\nMAE = %.2f',rText,prediction.rmse,prediction.mae), ...
+    'Units','normalized','FontName','Calibri','FontSize',18, ...
+    'BackgroundColor','w','Margin',4,'Interpreter','none');
+hold(ax,'off');
+ax.YLabel.Units = 'normalized';
+drawnow;
+text(ax,ax.YLabel.Position(1),1.04,'(a)','Units','normalized','Clipping','off', ...
+    'FontWeight','normal','FontSize',18,'HorizontalAlignment','center');
 
 %% Four dependence plots, each with a LOESS curve and a top density panel
 xLabels = {'$\nabla \overline{\mathrm{SST}}\ (10^{-5}\ ^\circ\mathrm{C}\,\mathrm{m}^{-1})$', ...
            '$U/c$', '$\lambda^*$', '$\mathrm{SR}_{\mathrm{L}}\ (10^{-6}\,\mathrm{s}^{-1})$'};
 ampLabel = '$\mathrm{SSTA\ Amp}\ (^\circ\mathrm{C})$';
 colorLabels = {ampLabel,'$\Delta \mathrm{FSLE}\ (\mathrm{d}^{-1})$',ampLabel,'$U/c$'};
-colorValues = {sstaAmp,absDeltaFSLE,sstaAmp,predictors(:,2)};
-palettes = {scatterColors,scatterColors,dampingColors,scatterColors};
+colorValues = {D.sstaAmp,D.absDeltaFSLE,D.sstaAmp,D.predictors(:,2)};
+palettes = {D.scatterColors,D.scatterColors,D.dampingColors,D.scatterColors};
 
 xScale = [1e5 1 1 1e6];
 xMax = [2.5 30 2 1.5];
@@ -25,13 +76,22 @@ barFont = [16 18 16 16];
 barWidth = [1.5 2 2 1.5];
 zeroWidth = [1.8 2 2 1.8];
 bottom = [0.12 0.12 0.12 0.13];
+panelLetters = {'(c)','(d)','(e)','(f)'};
 
 for k = 1:4
-    x = predictors(:,k)*xScale(k);
-    y = shapValues(:,k);
-    c = colorValues{k};
+    if k == 3
+        x = D.dampingPoints(:,1);
+        y = D.dampingPoints(:,2);
+        c = D.dampingPoints(:,3);
+    else
+        x = D.predictors(:,k)*xScale(k);
+        y = D.shapValues(:,k);
+        c = colorValues{k};
+    end
+    x = x(:); y = y(:); c = c(:);
     keep = isfinite(x) & isfinite(y) & isfinite(c);
     x = x(keep); y = y(keep); c = c(keep);
+    assert(~isempty(x),'No finite x, SHAP and colour triples for panel %s.',panelLetters{k});
 
     figure('Color','w','Position',[100 100 720 480]);
     mainPos = [0.12 bottom(k) 0.73 0.65];
@@ -49,7 +109,7 @@ for k = 1:4
     end
     yline(ax,0,'--k','LineWidth',zeroWidth(k));
     [xs,order] = sort(x);
-    if ~isempty(xs) && (k < 4 || numel(unique(xs)) >= 3)
+    if numel(unique(xs)) >= 3
         fitY = smooth(xs,y(order),span(k),'loess');
         plot(ax,xs,fitY,'k-','LineWidth',2.5);
     end
@@ -76,35 +136,15 @@ for k = 1:4
     end
     xlim(top,[0 xMax(k)]);
     set(top,'XTick',[],'Color','none','Box','off','LineWidth',1.8,'FontSize',15);
+    ax.YLabel.Units = 'normalized';
+    drawnow;
+    text(top,ax.YLabel.Position(1),1.02,panelLetters{k},'Units','normalized', ...
+        'HorizontalAlignment','center','FontWeight','normal','FontSize',16,'Clipping','off');
     axes(ax);
 end
 
 %% Four SHAP maps in the original layout, with a shared vertical colorbar
-lon = 1:2:359;
-lat = -89:2:89;
-mapSHAP = nan(numel(lon),numel(lat),4);
-for i = 1:numel(lon)
-    % Both cell edges are included, as in the original analysis.
-    inLon = longitude >= lon(i)-1 & longitude <= lon(i)+1;
-    localLat = latitude(inLon);
-    localSHAP = shapValues(inLon,:);
-    for j = 1:numel(lat)
-        z = localSHAP(localLat >= lat(j)-1 & localLat <= lat(j)+1,:);
-        if isempty(z)
-            continue
-        end
-        mapSHAP(i,j,1) = mean(z(:,1),'omitnan');
-        mapSHAP(i,j,2) = mean(z(:,2),'omitnan');
-        mapSHAP(i,j,4) = mean(z(:,4),'omitnan');
-        % Trim the sorted damping values using the full number of samples.
-        n = size(z,1);
-        damp = sort(z(:,3));
-        mapSHAP(i,j,3) = mean(damp(floor(n*0.05)+1:floor(n*0.95)),'omitnan');
-    end
-end
-mapSHAP(:,41:50,:) = NaN;
-
-[Lon,Lat] = ndgrid(lon,lat);
+[Lon,Lat] = ndgrid(D.lon,D.lat);
 positions = [0.08 0.68 0.37 0.30; 0.52 0.68 0.37 0.30; ...
              0.08 0.36 0.37 0.30; 0.52 0.36 0.37 0.30];
 figure('Name','1','NumberTitle','off','Position',[100 50 1400 950]);
@@ -112,8 +152,8 @@ for k = 1:4
     ax = subplot(3,2,k);
     ax.Position = positions(k,:);
     m_proj('Miller','lon',[0 360],'lat',[-70 70]);
-    m_pcolor(Lon,Lat,mapSHAP(:,:,k));
-    colormap(ax,mapColors);
+    m_pcolor(Lon,Lat,D.mapSHAP(:,:,k));
+    colormap(ax,D.mapColors);
     caxis(ax,[-0.06 0.06]);
     if k == 2
         cb = colorbar(ax,'eastoutside');
@@ -129,5 +169,5 @@ for k = 1:4
            'xtick',0:60:360,'ytick',-90:30:90,'fontsize',18,'linestyle',':', ...
            'linewidth',3,tickOptions{:});
     m_coast('patch',[.5 .5 .5]);
-    title(ax,['SHAP contribution: ' predictorNames{k}],'FontSize',20);
+    title(ax,['SHAP contribution: ' D.predictorNames{k}],'FontSize',20);
 end
